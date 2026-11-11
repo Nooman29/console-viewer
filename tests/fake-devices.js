@@ -144,6 +144,12 @@
       });
       announce();
     },
+    // The device drops out of the list but keeps working, as can happen for a
+    // moment while the system re-reads its devices.
+    dropFromList(...ids) {
+      state.devices = state.devices.filter((d) => !ids.includes(d.deviceId));
+      announce();
+    },
     setBlack(id, black) {
       const device = state.devices.find((d) => d.deviceId === id);
       if (device) device.black = black;

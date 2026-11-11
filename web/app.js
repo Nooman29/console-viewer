@@ -32,6 +32,10 @@
   const hintClose = $('hintClose');
   const toastEl = $('toast');
 
+  // Present only inside the desktop app (see desktop/preload.js). In a normal
+  // browser this is null and everything behaves as before.
+  const host = window.consoleViewerHost || null;
+
   // Names that capture cards commonly report. Used only to prefer a capture
   // card over a webcam when choosing automatically; the user can always pick.
   const CAPTURE_HINT = /capture|hdmi|cam link|elgato|avermedia|live gamer|usb ?3?\.?0? video|macrosilicon|ezcap|video grabber|magewell|ripsaw/i;
@@ -64,6 +68,8 @@
   let currentVideoId = '';
   let currentAudioId = '';
   let lostVideoId = '';       // the device that was on screen when it disconnected
+  let paused = false;         // desktop app only: window hidden, nothing open
+  let wantedVideoId = '';     // desktop app only: card that arrived while paused
   let audioAsked = false;
   let wakeLock = null;
 
@@ -215,6 +221,7 @@
     stream = null;
     video.srcObject = null;
     releaseWake();
+    if (host) host.setPlaying(false);
   }
 
   // Returns null when the picture is up, 'stale' when a newer open replaced
@@ -288,6 +295,7 @@
     updateStats();
     hideScreen();
     holdWake();
+    if (host) host.setPlaying(true);
     if (audioFailed) toast('Could not open that sound source. Showing picture only.');
     return null;
   }
@@ -328,6 +336,30 @@
     showScreen('Device disconnected', 'Plug it back in and it will reconnect automatically.', 'Try again');
   }
 
+  // ---------- Desktop app: waiting in the background ----------
+  // When the desktop window is closed to the tray, everything is released so
+  // no camera stays on, but we keep listening for a capture card arriving.
+
+  async function pause() {
+    paused = true;
+    started = true;
+    openSeq += 1; // cancels any open that is still in progress
+    stopStream();
+    showScreen('Paused', 'Waiting for a capture card.');
+    try {
+      await listDevices();
+      rememberVideoIds();
+    } catch { /* the next device change will try again */ }
+  }
+
+  function resume() {
+    if (!paused) return;
+    paused = false;
+    const prefer = wantedVideoId;
+    wantedVideoId = '';
+    start(prefer || undefined);
+  }
+
   // ---------- Plug and unplug ----------
 
   async function onDeviceChange() {
@@ -337,6 +369,15 @@
     rememberVideoIds();
     const added = videos.filter((d) => d.deviceId && !before.has(d.deviceId));
     const newCapture = added.find((d) => looksLikeCapture(d.label));
+
+    if (paused) {
+      // Only a capture card is worth bringing the window back for.
+      if (newCapture && host) {
+        wantedVideoId = newCapture.deviceId;
+        host.captureCardConnected(newCapture.label);
+      }
+      return;
+    }
 
     if (!stream) {
       // Waiting for a device: connect to whatever was just plugged in.
@@ -354,7 +395,11 @@
     }
     const current = videos.find((d) => d.deviceId === currentVideoId);
     if (!current) {
-      onDisconnect();
+      // The list can come back incomplete for a moment while the system is
+      // re-reading its devices. Only believe it if the picture has really
+      // stopped; a true unplug also ends the track, which is handled above.
+      const track = stream.getVideoTracks()[0];
+      if (!track || track.readyState === 'ended') onDisconnect();
       return;
     }
     // Take over from a webcam, but never interrupt a capture card mid-game.
@@ -662,6 +707,14 @@
     });
     navigator.mediaDevices.addEventListener('devicechange', scheduleDeviceChange);
     setInterval(checkForBlackPicture, 1500);
+
+    if (host) {
+      // Desktop app: access is already granted, so there is no Start button.
+      host.onPause(pause);
+      host.onResume(resume);
+      if (host.startPaused) pause(); else start();
+      return;
+    }
 
     // If access was granted on an earlier visit, skip the Start button.
     if (navigator.permissions && navigator.permissions.query) {

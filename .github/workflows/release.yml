@@ -1,0 +1,32 @@
+# Builds the Windows installer and attaches it to a GitHub release.
+# Runs when a version tag such as v0.2.0 is pushed. The tag should match
+# the "version" in desktop/package.json.
+name: Release desktop app
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install
+        working-directory: desktop
+        run: npm ci
+      - name: Build installer
+        working-directory: desktop
+        run: npm run dist
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $installer = (Get-ChildItem desktop/dist/*.exe | Where-Object { $_.Name -notlike '*uninstaller*' }).FullName
+          gh release create "$env:GITHUB_REF_NAME" $installer --title "Console Viewer $env:GITHUB_REF_NAME" --generate-notes

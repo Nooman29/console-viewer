@@ -1,0 +1,49 @@
+{
+  "name": "console-viewer",
+  "productName": "Console Viewer",
+  "version": "0.2.0",
+  "description": "Plug an HDMI capture card into your PC and play your console full screen, with sound.",
+  "author": "Nooman",
+  "license": "MIT",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "node scripts/start.js",
+    "icon": "node scripts/make-icon.js",
+    "pack": "electron-builder --win --dir",
+    "dist": "electron-builder --win --publish never"
+  },
+  "build": {
+    "appId": "io.github.nooman29.consoleviewer",
+    "productName": "Console Viewer",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "assets/icon.png"
+    ],
+    "extraResources": [
+      {
+        "from": "../web",
+        "to": "web"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "artifactName": "Console-Viewer-Setup-${version}.${ext}"
+    }
+  },
+  "devDependencies": {
+    "electron": "^45.3.0",
+    "electron-builder": "^26.18.0"
+  }
+}

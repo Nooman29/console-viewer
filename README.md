@@ -4,7 +4,7 @@ Play your console on your PC screen. Plug an HDMI capture card into a USB port a
 
 Works with anything that has an HDMI output: PS4, PS5, Nintendo Switch, Xbox, a camera, another computer.
 
-> **Status: early prototype.** The web version works with a webcam as a stand-in and passes its automated tests, which use pretend capture cards. It has not been tested with a real capture card yet. If you try it with one, please open an issue and say which card you used.
+> **Status: early prototype.** The web and desktop versions pass their automated tests, which use pretend capture cards, and the web version works with a webcam as a stand-in. Neither has been tested with a real capture card yet. If you try it with one, please open an issue and say which card you used.
 
 ## What you need
 
@@ -14,15 +14,39 @@ Your PC's own HDMI port only sends a picture out. It cannot take one in. So you 
 Console ──HDMI──▶ Capture card ──USB──▶ PC ──▶ Console Viewer
 ```
 
-## Run it
+## Two ways to use it
 
-You need Python (or any other local web server) and a current version of Chrome or Edge.
+**In your browser, nothing to install:** open <https://nooman29.github.io/console-viewer/> in Chrome or Edge, press **Start**, and allow camera and microphone access.
+
+**As a Windows app:** download `Console-Viewer-Setup` from the [Releases page](https://github.com/Nooman29/console-viewer/releases) and run it. The app:
+
+- opens with no Start button and no permission questions
+- stays in the system tray when you close the window, with the camera released
+- comes to the front by itself when you plug in a capture card
+- can start with Windows (right-click the tray icon)
+- saves screenshots and clips straight to your Downloads folder
+
+The installer is not signed, so Windows shows a blue "Windows protected your PC" box the first time. Choose **More info**, then **Run anyway**.
+
+## Run it from the source code
+
+For the web app you need Python (or any other local web server) and a current version of Chrome or Edge.
 
 ```powershell
 python -m http.server 8000 --directory web
 ```
 
 Then open <http://localhost:8000>, press **Start**, and allow camera and microphone access. The browser asks for both because a capture card presents itself as a camera and a microphone.
+
+For the desktop app you need Node.js:
+
+```powershell
+cd desktop
+npm install
+npm start
+```
+
+`npm run dist` builds the Windows installer into `desktop/dist`.
 
 ## Features
 
@@ -64,17 +88,21 @@ Pick the capture card in the **Sound** menu at the top. Sound is only chosen aut
 The tests run the real page in Microsoft Edge with pretend capture cards, so they need no hardware. They cover plugging in, unplugging, a busy device, refused access, the black-picture tip, sound selection, recording and the keyboard shortcuts.
 
 ```powershell
-cd tests
+cd desktop
+npm install
+cd ..\tests
 npm install
 npm test
 ```
+
+The desktop app is tested the same way: the real program is started with pretend devices. Those tests are skipped if the `desktop` folder has not had `npm install` run.
 
 ## Roadmap
 
 | Phase | What | Status |
 |---|---|---|
-| 1 | Web app (`web/`) | In progress |
-| 2 | Desktop app: opens by itself when a card is plugged in, tray icon, installer | Planned |
+| 1 | Web app (`web/`) | Working, waiting for tests with real capture cards |
+| 2 | Desktop app (`desktop/`): opens by itself when a card is plugged in, tray icon, installer | Working, waiting for tests with real capture cards |
 | 3 | Python version | Planned |
 | 4 | C++ version using native Windows capture for the lowest delay | Planned |
 

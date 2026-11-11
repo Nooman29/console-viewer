@@ -62,7 +62,8 @@ after(async () => {
 
 // Opens the app with the given pretend devices. `saved` pre-fills the
 // choices the app remembers between visits.
-async function openApp(t, config, saved) {
+// `host` pretends the page is inside the desktop app: { startPaused }.
+async function openApp(t, config, saved, host) {
   const context = await browser.newContext();
   t.after(() => context.close());
   const page = await context.newPage();
@@ -73,6 +74,19 @@ async function openApp(t, config, saved) {
     await page.addInitScript((s) => {
       Object.entries(s).forEach(([key, value]) => localStorage.setItem('cv:' + key, value));
     }, saved);
+  }
+  if (host) {
+    await page.addInitScript((h) => {
+      window.__hostCalls = [];
+      window.__hostCallbacks = {};
+      window.consoleViewerHost = {
+        startPaused: !!h.startPaused,
+        onPause: (cb) => { window.__hostCallbacks.pause = cb; },
+        onResume: (cb) => { window.__hostCallbacks.resume = cb; },
+        captureCardConnected: (label) => { window.__hostCalls.push(['card', label]); },
+        setPlaying: (on) => { window.__hostCalls.push(['playing', on]); },
+      };
+    }, host);
   }
   await page.addInitScript({ path: FAKE });
   await page.goto(base);
@@ -180,6 +194,16 @@ test('quick unplug and replug: reconnects', async (t) => {
   assert.equal(await value(page, 'videoSel'), 'card1');
   assert.equal(await value(page, 'audioSel'), 'card1a');
   assert.deepEqual(page.errors, []);
+});
+
+test('a hiccup in the device list does not stop a working picture', async (t) => {
+  const page = await openApp(t, { devices: [WEBCAM, MIC, CARD, CARD_SOUND] });
+  await page.click('#startBtn');
+  await waitLive(page);
+  await fake(page, 'dropFromList', 'card1', 'card1a');
+  await page.waitForTimeout(1500);
+  assert.equal(await page.evaluate(() => document.body.classList.contains('live')), true);
+  assert.equal(await fake(page, 'liveTrackCount'), 2);
 });
 
 test('plugging in a capture card takes over from the webcam', async (t) => {
@@ -405,6 +429,63 @@ test('recording a picture with no sound works', async (t) => {
   const [download] = await Promise.all([
     page.waitForEvent('download', WAIT),
     page.click('#recBtn'),
+  ]);
+  assert.ok(await savedSize(download) > 10000);
+});
+
+// ---------- Inside the desktop app ----------
+
+const hostCalls = (page) => page.evaluate(() => window.__hostCalls);
+const hostSignal = (page, name) => page.evaluate((n) => window.__hostCallbacks[n](), name);
+const GRANTED = { camGranted: true, micGranted: true };
+
+test('desktop: connects without a Start button and reports that a picture is showing', async (t) => {
+  const page = await openApp(t, { devices: [CARD, CARD_SOUND], ...GRANTED }, null, {});
+  await waitLive(page);
+  assert.deepEqual((await hostCalls(page)).pop(), ['playing', true]);
+});
+
+test('desktop: started in the background, it opens nothing until a capture card arrives', async (t) => {
+  const page = await openApp(t, { devices: [WEBCAM, MIC], ...GRANTED }, null, { startPaused: true });
+  await waitMessage(page, 'Paused');
+  await page.waitForTimeout(1000);
+  assert.equal(await page.evaluate(() => window.__fake.state.calls.length), 0, 'the webcam must not be opened');
+
+  await fake(page, 'plug', UVC_WEBCAM, UVC_WEBCAM_MIC);
+  await page.waitForTimeout(1200);
+  assert.deepEqual(await hostCalls(page), [], 'a webcam is not a reason to open the window');
+
+  await fake(page, 'plug', CARD, CARD_SOUND);
+  await page.waitForFunction(() => window.__hostCalls.some((c) => c[0] === 'card'), null, WAIT);
+  assert.deepEqual((await hostCalls(page))[0], ['card', 'USB3.0 HD Video Capture']);
+  assert.equal(await page.evaluate(() => window.__fake.state.calls.length), 0, 'still nothing opened while hidden');
+
+  await hostSignal(page, 'resume');
+  await waitLive(page);
+  assert.equal(await value(page, 'videoSel'), 'card1');
+  assert.equal(await value(page, 'audioSel'), 'card1a');
+});
+
+test('desktop: hiding the window releases the device, showing it reconnects', async (t) => {
+  const page = await openApp(t, { devices: [CARD, CARD_SOUND], ...GRANTED }, null, {});
+  await waitLive(page);
+  await hostSignal(page, 'pause');
+  await waitMessage(page, 'Paused');
+  assert.equal(await fake(page, 'liveTrackCount'), 0);
+  assert.deepEqual((await hostCalls(page)).pop(), ['playing', false]);
+  await hostSignal(page, 'resume');
+  await waitLive(page);
+  assert.equal(await fake(page, 'liveTrackCount'), 2);
+});
+
+test('desktop: hiding the window while recording saves the clip', async (t) => {
+  const page = await openApp(t, { devices: [CARD, CARD_SOUND], ...GRANTED }, null, {});
+  await waitLive(page);
+  await page.click('#recBtn');
+  await page.waitForTimeout(2500);
+  const [download] = await Promise.all([
+    page.waitForEvent('download', WAIT),
+    hostSignal(page, 'pause'),
   ]);
   assert.ok(await savedSize(download) > 10000);
 });
