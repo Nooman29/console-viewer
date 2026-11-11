@@ -1,0 +1,337 @@
+/*
+ * Browser tests for the web app, using pretend capture cards.
+ *
+ * Runs the real page in Microsoft Edge (already on every Windows PC) with
+ * tests/fake-devices.js standing in for the hardware.
+ *
+ *   cd tests
+ *   npm install
+ *   npm test
+ */
+'use strict';
+
+const { test, before, after } = require('node:test');
+const assert = require('node:assert/strict');
+const http = require('node:http');
+const fs = require('node:fs');
+const path = require('node:path');
+const { chromium } = require('playwright-core');
+
+const WEB_DIR = path.resolve(__dirname, '..', 'web');
+const FAKE = path.join(__dirname, 'fake-devices.js');
+const TYPES = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript' };
+
+// Pretend hardware.
+const WEBCAM = { kind: 'videoinput', deviceId: 'cam1', label: 'HP True Vision HD Camera', groupId: 'g-cam' };
+const MIC = { kind: 'audioinput', deviceId: 'mic1', label: 'Microphone Array', groupId: 'g-mic' };
+const CARD = { kind: 'videoinput', deviceId: 'card1', label: 'USB3.0 HD Video Capture', groupId: 'g-card' };
+const CARD_SOUND = { kind: 'audioinput', deviceId: 'card1a', label: 'Digital Audio Interface (USB Digital Audio)', groupId: 'g-card' };
+const CARD2 = { kind: 'videoinput', deviceId: 'card2', label: 'Elgato HD60 X', groupId: 'g-card2' };
+// A webcam whose name contains "UVC" and that has its own microphone.
+const UVC_WEBCAM = { kind: 'videoinput', deviceId: 'cam2', label: 'USB2.0 HD UVC WebCam', groupId: 'g-cam2' };
+const UVC_WEBCAM_MIC = { kind: 'audioinput', deviceId: 'cam2a', label: 'Microphone (USB2.0 HD UVC WebCam)', groupId: 'g-cam2' };
+
+let server;
+let base;
+let browser;
+
+before(async () => {
+  server = http.createServer((req, res) => {
+    const name = req.url.split('?')[0];
+    const file = path.join(WEB_DIR, name === '/' ? 'index.html' : name);
+    if (!file.startsWith(WEB_DIR)) { res.writeHead(403).end(); return; }
+    fs.readFile(file, (err, data) => {
+      if (err) { res.writeHead(404).end(); return; }
+      res.writeHead(200, { 'content-type': TYPES[path.extname(file)] || 'application/octet-stream' });
+      res.end(data);
+    });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  base = `http://localhost:${server.address().port}/`;
+  browser = await chromium.launch({
+    channel: 'msedge',
+    headless: true,
+    args: ['--autoplay-policy=no-user-gesture-required'],
+  });
+});
+
+after(async () => {
+  if (browser) await browser.close();
+  if (server) await new Promise((resolve) => server.close(resolve));
+});
+
+// Opens the app with the given pretend devices. `saved` pre-fills the
+// choices the app remembers between visits.
+async function openApp(t, config, saved) {
+  const context = await browser.newContext();
+  t.after(() => context.close());
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', (err) => errors.push(err.message));
+  await page.addInitScript((c) => { window.__fakeConfig = c; }, config);
+  if (saved) {
+    await page.addInitScript((s) => {
+      Object.entries(s).forEach(([key, value]) => localStorage.setItem('cv:' + key, value));
+    }, saved);
+  }
+  await page.addInitScript({ path: FAKE });
+  await page.goto(base);
+  page.errors = errors;
+  return page;
+}
+
+const WAIT = { timeout: 8000 };
+
+const waitLive = (page) => page.waitForFunction(
+  () => document.body.classList.contains('live') && document.getElementById('video').videoWidth > 0, null, WAIT);
+
+const waitMessage = (page, text) => page.waitForFunction(
+  (t) => !document.getElementById('screen').hidden
+    && document.getElementById('screenMsg').textContent === t, text, WAIT);
+
+const waitValue = (page, id, value) => page.waitForFunction(
+  ([i, v]) => document.getElementById(i).value === v, [id, value], WAIT);
+
+const value = (page, id) => page.evaluate((i) => document.getElementById(i).value, id);
+const fake = (page, fn, ...args) => page.evaluate(([f, a]) => window.__fake[f](...a), [fn, args]);
+
+test('webcam only: shows the picture and never plays the microphone', async (t) => {
+  const page = await openApp(t, { devices: [WEBCAM, MIC] });
+  await page.click('#startBtn');
+  await waitLive(page);
+  assert.equal(await value(page, 'videoSel'), 'cam1');
+  assert.equal(await value(page, 'audioSel'), '', 'sound must stay off for a webcam');
+  assert.equal(await page.isDisabled('#muteBtn'), true);
+  assert.equal(await fake(page, 'liveTrackCount'), 1, 'only the picture track should be open');
+  assert.deepEqual(page.errors, []);
+});
+
+test('capture card is preferred over the webcam, with its own sound', async (t) => {
+  const page = await openApp(t, { devices: [WEBCAM, MIC, CARD, CARD_SOUND] });
+  await page.click('#startBtn');
+  await waitLive(page);
+  assert.equal(await value(page, 'videoSel'), 'card1');
+  assert.equal(await value(page, 'audioSel'), 'card1a');
+  assert.equal(await page.isDisabled('#muteBtn'), false);
+  assert.equal(await fake(page, 'liveTrackCount'), 2, 'probe streams must be closed');
+  const text = await page.textContent('#stats');
+  assert.match(text, /1280×720/);
+  assert.deepEqual(page.errors, []);
+});
+
+test('game sound is opened with voice processing switched off', async (t) => {
+  const page = await openApp(t, { devices: [CARD, CARD_SOUND] });
+  await page.click('#startBtn');
+  await waitLive(page);
+  const calls = await page.evaluate(() => window.__fake.state.calls);
+  const last = calls[calls.length - 1];
+  assert.equal(last.audio.echoCancellation, false);
+  assert.equal(last.audio.noiseSuppression, false);
+  assert.equal(last.audio.autoGainControl, false);
+  assert.equal(last.video.deviceId.exact, 'card1');
+});
+
+test('a webcam with "UVC" in its name does not get its microphone played', async (t) => {
+  const page = await openApp(t, { devices: [UVC_WEBCAM, UVC_WEBCAM_MIC] });
+  await page.click('#startBtn');
+  await waitLive(page);
+  assert.equal(await value(page, 'audioSel'), '');
+});
+
+test('first visit: Start pressed before the card is plugged in, then it connects', async (t) => {
+  const page = await openApp(t, { devices: [] });
+  await page.click('#startBtn');
+  await waitMessage(page, 'No video device found');
+  await fake(page, 'plug', CARD, CARD_SOUND);
+  await waitLive(page);
+  assert.equal(await value(page, 'videoSel'), 'card1');
+  assert.equal(await value(page, 'audioSel'), 'card1a');
+});
+
+test('access granted on an earlier visit: starts without pressing Start', async (t) => {
+  const page = await openApp(t, { devices: [CARD, CARD_SOUND], camGranted: true, micGranted: true });
+  await waitLive(page);
+  assert.equal(await value(page, 'videoSel'), 'card1');
+});
+
+test('unplug, wait, plug back in: reconnects', async (t) => {
+  const page = await openApp(t, { devices: [WEBCAM, MIC, CARD, CARD_SOUND] });
+  await page.click('#startBtn');
+  await waitLive(page);
+  await fake(page, 'unplug', 'card1', 'card1a');
+  await waitMessage(page, 'Device disconnected');
+  await page.waitForTimeout(1500); // long enough for the app to notice it has gone
+  assert.equal(await page.isVisible('#screen'), true, 'must not fall back to the webcam by itself');
+  await fake(page, 'plug', CARD, CARD_SOUND);
+  await waitLive(page);
+  assert.equal(await value(page, 'videoSel'), 'card1');
+  assert.equal(await value(page, 'audioSel'), 'card1a');
+});
+
+test('quick unplug and replug: reconnects', async (t) => {
+  const page = await openApp(t, { devices: [WEBCAM, MIC, CARD, CARD_SOUND] });
+  await page.click('#startBtn');
+  await waitLive(page);
+  await fake(page, 'unplug', 'card1', 'card1a');
+  await waitMessage(page, 'Device disconnected');
+  assert.equal(await fake(page, 'liveTrackCount'), 0, 'nothing should be left running');
+  await fake(page, 'plug', CARD, CARD_SOUND);
+  await waitLive(page);
+  assert.equal(await value(page, 'videoSel'), 'card1');
+  assert.equal(await value(page, 'audioSel'), 'card1a');
+  assert.deepEqual(page.errors, []);
+});
+
+test('plugging in a capture card takes over from the webcam', async (t) => {
+  const page = await openApp(t, { devices: [WEBCAM, MIC] });
+  await page.click('#startBtn');
+  await waitLive(page);
+  await fake(page, 'plug', CARD, CARD_SOUND);
+  await waitValue(page, 'videoSel', 'card1');
+  await waitLive(page);
+  assert.equal(await value(page, 'audioSel'), 'card1a');
+  assert.equal(await fake(page, 'liveTrackCount'), 2, 'the webcam stream must be closed');
+});
+
+test('a second capture card does not interrupt the one being watched', async (t) => {
+  const page = await openApp(t, { devices: [CARD, CARD_SOUND] });
+  await page.click('#startBtn');
+  await waitLive(page);
+  await fake(page, 'plug', CARD2);
+  await page.waitForFunction(() => document.getElementById('videoSel').options.length === 2, null, WAIT);
+  assert.equal(await value(page, 'videoSel'), 'card1');
+  assert.equal(await page.evaluate(() => document.body.classList.contains('live')), true);
+});
+
+test('sound device that registers late is picked up', async (t) => {
+  const page = await openApp(t, { devices: [], camGranted: true, micGranted: true });
+  await waitMessage(page, 'No video device found');
+  await fake(page, 'plug', CARD);
+  await waitLive(page);
+  assert.equal(await value(page, 'audioSel'), '');
+  await fake(page, 'plug', CARD_SOUND);
+  await waitValue(page, 'audioSel', 'card1a');
+  await waitLive(page);
+});
+
+test('choosing "No sound" is remembered and not overridden', async (t) => {
+  const page = await openApp(t, { devices: [CARD, CARD_SOUND] });
+  await page.click('#startBtn');
+  await waitLive(page);
+  await page.selectOption('#audioSel', '');
+  await waitValue(page, 'audioSel', '');
+  await waitLive(page);
+  await fake(page, 'plug', MIC); // any device change must not switch sound back on
+  await page.waitForFunction(() => document.getElementById('audioSel').options.length === 3, null, WAIT);
+  assert.equal(await value(page, 'audioSel'), '');
+  assert.equal(await fake(page, 'liveTrackCount'), 1);
+});
+
+test('remembered device is busy: falls back to the next one', async (t) => {
+  const page = await openApp(t, { devices: [WEBCAM, MIC, CARD, CARD_SOUND], busy: ['cam1'] }, { video: 'cam1' });
+  await page.click('#startBtn');
+  await waitLive(page);
+  assert.equal(await value(page, 'videoSel'), 'card1');
+});
+
+test('every device busy: clear message with a way to retry', async (t) => {
+  const page = await openApp(t, { devices: [CARD, CARD_SOUND], busy: ['card1'], camGranted: true, micGranted: true });
+  await waitMessage(page, 'The device is busy');
+  assert.equal(await page.isVisible('#startBtn'), true);
+  await fake(page, 'setBusy', 'card1', false);
+  await page.click('#startBtn');
+  await waitLive(page);
+});
+
+test('camera access refused: explains what to do', async (t) => {
+  const page = await openApp(t, { devices: [CARD, CARD_SOUND], camDenied: true });
+  await page.click('#startBtn');
+  await waitMessage(page, 'Camera access was blocked');
+  assert.equal(await page.isVisible('#startBtn'), true);
+});
+
+test('microphone refused: picture still works', async (t) => {
+  const page = await openApp(t, { devices: [CARD, CARD_SOUND], micDenied: true });
+  await page.click('#startBtn');
+  await waitLive(page);
+  assert.equal(await value(page, 'videoSel'), 'card1');
+  assert.equal(await value(page, 'audioSel'), '');
+});
+
+test('black picture brings up the HDCP tip, and it goes away when the picture returns', async (t) => {
+  const page = await openApp(t, { devices: [{ ...CARD, black: true }, CARD_SOUND] });
+  await page.click('#startBtn');
+  await waitLive(page);
+  assert.equal(await page.isVisible('#hint'), false, 'no tip in the first seconds');
+  await page.waitForFunction(() => !document.getElementById('hint').hidden, null, { timeout: 20000 });
+  await fake(page, 'setBlack', 'card1', false);
+  await page.waitForFunction(() => document.getElementById('hint').hidden, null, WAIT);
+});
+
+test('a normal picture never shows the HDCP tip', async (t) => {
+  const page = await openApp(t, { devices: [CARD, CARD_SOUND] });
+  await page.click('#startBtn');
+  await waitLive(page);
+  await page.waitForTimeout(12000);
+  assert.equal(await page.isVisible('#hint'), false);
+});
+
+test('control bar hides when the mouse is still and returns on movement', async (t) => {
+  const page = await openApp(t, { devices: [CARD, CARD_SOUND] });
+  await page.click('#startBtn');
+  await waitLive(page);
+  await page.mouse.move(400, 400);
+  await page.waitForFunction(() => document.body.classList.contains('idle'), null, WAIT);
+  await page.mouse.move(420, 420);
+  await page.waitForFunction(() => !document.body.classList.contains('idle'), null, WAIT);
+});
+
+test('a menu left focused does not jam the bar or the shortcuts', async (t) => {
+  const page = await openApp(t, { devices: [CARD, CARD_SOUND] });
+  await page.click('#startBtn');
+  await waitLive(page);
+  await page.focus('#qualitySel');
+  await page.mouse.move(400, 400);
+  await page.waitForFunction(() => document.body.classList.contains('idle'), null, { timeout: 15000 });
+  await page.keyboard.press('z');
+  assert.equal(await page.evaluate(() => document.getElementById('video').classList.contains('fill')), true);
+});
+
+test('keyboard shortcuts: Z fills the screen, M mutes', async (t) => {
+  const page = await openApp(t, { devices: [CARD, CARD_SOUND] });
+  await page.click('#startBtn');
+  await waitLive(page);
+  await page.mouse.move(400, 400);
+  await page.keyboard.press('z');
+  assert.equal(await page.evaluate(() => document.getElementById('video').classList.contains('fill')), true);
+  const before = await page.evaluate(() => document.getElementById('video').muted);
+  await page.keyboard.press('m');
+  assert.equal(await page.evaluate(() => document.getElementById('video').muted), !before);
+  assert.equal(await page.textContent('#muteBtn'), before ? 'Mute' : 'Unmute');
+});
+
+test('switching quality reopens the same device at the new size', async (t) => {
+  const page = await openApp(t, { devices: [CARD, CARD_SOUND] });
+  await page.click('#startBtn');
+  await waitLive(page);
+  await page.selectOption('#qualitySel', '720');
+  await page.waitForFunction(() => {
+    const calls = window.__fake.state.calls;
+    const last = calls[calls.length - 1];
+    return last.video && last.video.width && last.video.width.ideal === 1280;
+  }, null, WAIT);
+  await waitLive(page);
+  assert.equal(await value(page, 'videoSel'), 'card1');
+  assert.equal(await fake(page, 'liveTrackCount'), 2, 'the old stream must be closed');
+});
+
+test('screenshot downloads a PNG', async (t) => {
+  const page = await openApp(t, { devices: [CARD, CARD_SOUND] });
+  await page.click('#startBtn');
+  await waitLive(page);
+  const [download] = await Promise.all([
+    page.waitForEvent('download', WAIT),
+    page.click('#shotBtn'),
+  ]);
+  assert.match(download.suggestedFilename(), /^console-viewer-\d{8}-\d{6}\.png$/);
+});

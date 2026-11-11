@@ -1,0 +1,11 @@
+{
+  "name": "console-viewer-tests",
+  "private": true,
+  "description": "Browser tests for the Console Viewer web app, using pretend capture cards.",
+  "scripts": {
+    "test": "node --test --test-concurrency=1"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.65.0"
+  }
+}

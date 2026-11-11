@@ -1,0 +1,21 @@
+# Personal notes: the GitHub commands the owner runs by hand
+github-commands.md
+
+# Claude Code rules, agents and settings (delete these two lines to publish them)
+CLAUDE.md
+.claude/
+
+# Editors and OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# Later phases
+node_modules/
+dist/
+target/
+__pycache__/
+*.pyc
+.venv/
+build/

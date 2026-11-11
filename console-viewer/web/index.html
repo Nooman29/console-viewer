@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Console Viewer</title>
+  <meta name="description" content="Plug an HDMI capture card into your PC and see your console full screen, with sound.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <video id="video" autoplay playsinline></video>
+
+  <!-- Start / status screen. Hidden while a picture is showing. -->
+  <main id="screen" class="screen">
+    <h1>Console Viewer</h1>
+    <p id="screenMsg" class="msg">Show your console on this screen.</p>
+    <button id="startBtn" class="primary" type="button">Start</button>
+    <p id="screenSub" class="sub">
+      Plug your HDMI capture card into a USB port, then press Start and allow camera access.
+    </p>
+  </main>
+
+  <!-- Control bar. Fades out when the mouse is still. -->
+  <header id="bar" class="bar">
+    <label>
+      <span>Video</span>
+      <select id="videoSel" title="Video source"></select>
+    </label>
+    <label>
+      <span>Sound</span>
+      <select id="audioSel" title="Sound source"></select>
+    </label>
+    <label>
+      <span>Quality</span>
+      <select id="qualitySel" title="Requested quality">
+        <option value="1080">1080p</option>
+        <option value="720">720p</option>
+        <option value="2160">4K</option>
+      </select>
+    </label>
+
+    <span class="spacer"></span>
+    <span id="stats" class="stats"></span>
+
+    <button id="muteBtn" type="button" title="Mute or unmute (M)">Mute</button>
+    <input id="volume" type="range" min="0" max="1" step="0.05" value="1" title="Volume" aria-label="Volume">
+    <button id="fillBtn" type="button" title="Fit or fill the screen (Z)">Fill</button>
+    <button id="shotBtn" type="button" title="Save a screenshot (S)">Screenshot</button>
+    <button id="pipBtn" type="button" title="Small floating window (P)">Mini window</button>
+    <button id="fsBtn" type="button" title="Full screen (F)">Full screen</button>
+  </header>
+
+  <!-- Shown when the device is connected but the picture stays black. -->
+  <aside id="hint" class="hint" hidden>
+    <strong>The picture is black.</strong>
+    <p>
+      Check the console is on. On a PlayStation, copy protection blocks capture cards:
+      go to <em>Settings → System → HDMI</em> and turn off <em>Enable HDCP</em>.
+    </p>
+    <button id="hintClose" type="button">Got it</button>
+  </aside>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
