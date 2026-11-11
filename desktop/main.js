@@ -32,6 +32,10 @@ let tray = null;
 let quitting = false;
 let trayTipShown = false;
 let sleepBlocker = null;
+let wantPaused = startHidden;  // what the page should be doing right now
+let recording = false;         // the page is recording a clip
+let activeDownloads = 0;       // files still being written to Downloads
+let clipFlushed = false;       // quitting has already waited for the clip
 
 // app:// behaves like https, which the browser engine requires for cameras.
 protocol.registerSchemesAsPrivileged([
@@ -67,7 +71,14 @@ function setUpDownloads() {
       target = path.join(folder, `${parsed.name}-${n}${parsed.ext}`);
     }
     item.setSavePath(target);
+    activeDownloads += 1;
+    item.once('done', () => { activeDownloads -= 1; });
   });
+}
+
+// Tell the page whether it should be showing a picture or waiting quietly.
+function sendState() {
+  if (win && !win.isDestroyed()) win.webContents.send(wantPaused ? 'host:pause' : 'host:resume');
 }
 
 function createWindow() {
@@ -105,24 +116,29 @@ function createWindow() {
   });
   win.on('closed', () => { win = null; });
 
+  // A hide or show that happened while the page was still loading would
+  // otherwise be lost, so repeat the current state once it has loaded.
+  win.webContents.on('did-finish-load', sendState);
+
   win.once('ready-to-show', () => { if (!startHidden) win.show(); });
   win.loadURL('app://viewer/');
 }
 
 function showWindow() {
   if (!win) return;
-  const wasHidden = !win.isVisible();
   if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
-  if (wasHidden) win.webContents.send('host:resume');
+  wantPaused = false;
+  sendState();
 }
 
 function hideWindow() {
   if (!win) return;
   if (win.isFullScreen()) win.setFullScreen(false);
   win.hide();
-  win.webContents.send('host:pause');
+  wantPaused = true;
+  sendState();
   if (!trayTipShown && tray && process.platform === 'win32') {
     trayTipShown = true;
     tray.displayBalloon({
@@ -181,12 +197,39 @@ ipcMain.on('host:playing', (event, playing) => {
   }
 });
 
+ipcMain.on('host:recording', (event, on) => {
+  if (fromOurWindow(event)) recording = !!on;
+});
+
+// Quitting in the middle of a recording would throw the clip away. Ask the
+// page to stop and save first, wait for the file, then quit for real.
+function flushClipThenQuit() {
+  clipFlushed = true;
+  wantPaused = true;
+  sendState();
+  const started = Date.now();
+  const timer = setInterval(() => {
+    const waited = Date.now() - started;
+    const saved = !recording && activeDownloads === 0 && waited > 1500;
+    if (saved || waited > 15000) {
+      clearInterval(timer);
+      app.quit();
+    }
+  }, 100);
+}
+
 // Starting the app a second time brings the first one to the front.
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', showWindow);
-  app.on('before-quit', () => { quitting = true; });
+  app.on('before-quit', (event) => {
+    quitting = true;
+    if (recording && !clipFlushed && win && !win.isDestroyed()) {
+      event.preventDefault();
+      flushClipThenQuit();
+    }
+  });
   app.on('window-all-closed', () => { /* stay in the tray */ });
 
   app.whenReady().then(() => {

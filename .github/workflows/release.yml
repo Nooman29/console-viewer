@@ -18,6 +18,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Check the tag matches the app version
+        run: |
+          $version = (Get-Content desktop/package.json -Raw | ConvertFrom-Json).version
+          if ("v$version" -ne $env:GITHUB_REF_NAME) {
+            throw "Tag $env:GITHUB_REF_NAME does not match version $version in desktop/package.json"
+          }
       - name: Install
         working-directory: desktop
         run: npm ci
@@ -29,4 +35,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $installer = (Get-ChildItem desktop/dist/*.exe | Where-Object { $_.Name -notlike '*uninstaller*' }).FullName
+          if (-not $installer) { throw 'No installer was built' }
           gh release create "$env:GITHUB_REF_NAME" $installer --title "Console Viewer $env:GITHUB_REF_NAME" --generate-notes

@@ -94,12 +94,17 @@
       return fail('NotReadableError', 'Device in use');
     }
 
-    const tracks = picks.map((device) => {
-      const made = device.kind === 'videoinput' ? makeVideoTrack(device) : makeAudioTrack();
-      state.live.push({ deviceId: device.deviceId, ...made });
-      return made.track;
-    });
-    return Promise.resolve(new MediaStream(tracks));
+    const build = () => {
+      const tracks = picks.map((device) => {
+        const made = device.kind === 'videoinput' ? makeVideoTrack(device) : makeAudioTrack();
+        state.live.push({ deviceId: device.deviceId, ...made });
+        return made.track;
+      });
+      return new MediaStream(tracks);
+    };
+    // Real devices take a moment to open; `openDelay` copies that.
+    if (!cfg.openDelay) return Promise.resolve(build());
+    return new Promise((resolve) => setTimeout(() => resolve(build()), cfg.openDelay));
   };
 
   md.enumerateDevices = () => {

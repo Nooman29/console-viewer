@@ -41,6 +41,9 @@
   const CAPTURE_HINT = /capture|hdmi|cam link|elgato|avermedia|live gamer|usb ?3?\.?0? video|macrosilicon|ezcap|video grabber|magewell|ripsaw/i;
   const WEBCAM_HINT = /webcam|camera|facetime|integrated/i;
   const looksLikeCapture = (label) => CAPTURE_HINT.test(label) && !WEBCAM_HINT.test(label);
+  // The most common cheap cards name their sound input like this, and the
+  // browser does not always group it with the card's picture.
+  const CARD_SOUND_HINT = /digital audio interface|usb digital audio/i;
 
   const QUALITY = {
     1080: { width: 1920, height: 1080, frameRate: 60 },
@@ -103,8 +106,9 @@
     switch (err && err.name) {
       case 'NotAllowedError':
       case 'SecurityError':
-        return ['Camera access was blocked',
-          'Click the camera icon in the address bar, allow access, then try again.'];
+        return ['Camera access was blocked', host
+          ? 'Open Windows Settings, go to Privacy & security, then Camera, and allow desktop apps to use the camera. Then try again.'
+          : 'Click the camera icon in the address bar, allow access, then try again.'];
       case 'NotFoundError':
       case 'OverconstrainedError':
         return ['That device is not available',
@@ -194,7 +198,7 @@
     if (saved && audios.some((a) => a.deviceId === saved)) return saved;
     if (!looksLikeCapture(videoDevice.label)) return '';
     const match = audios.find((a) => videoDevice.groupId && a.groupId === videoDevice.groupId)
-      || audios.find((a) => looksLikeCapture(a.label));
+      || audios.find((a) => looksLikeCapture(a.label) || CARD_SOUND_HINT.test(a.label));
     return match ? match.deviceId : '';
   }
 
@@ -280,16 +284,30 @@
     video.srcObject = s;
     try {
       await video.play();
-    } catch {
-      // The browser refused to autoplay with sound: start muted instead.
-      video.muted = true;
-      try { await video.play(); } catch { /* the autoplay attribute will retry */ }
-      toast('Sound is off. Press M to turn it on.');
+    } catch (err) {
+      // A newer open or a pause took the picture away mid-start. That is not
+      // a sound problem, so leave the mute setting alone.
+      if (seq !== openSeq) return 'stale';
+      if (err && err.name === 'NotAllowedError') {
+        // The browser refused to autoplay with sound: start muted instead.
+        video.muted = true;
+        try { await video.play(); } catch { /* the autoplay attribute will retry */ }
+        toast('Sound is off. Press M to turn it on.');
+      }
     }
     if (seq !== openSeq) return 'stale';
 
     try { await listDevices(); } catch { /* keep the old list */ }
     rememberVideoIds();
+    if (seq !== openSeq) return 'stale';
+
+    // A card's sound device can register while its picture is still opening.
+    // Nothing else would notice it afterwards, so look again now.
+    if (!audioId) {
+      const device = videos.find((d) => d.deviceId === videoId);
+      const lateAudio = device ? chooseAudio(device) : '';
+      if (lateAudio) return open(videoId, lateAudio, quiet);
+    }
     renderSelects();
     updateMuteButton();
     updateStats();
@@ -558,6 +576,7 @@
     recBadge.hidden = !on;
     recBtn.textContent = on ? 'Stop recording' : 'Record';
     recBtn.classList.toggle('recording', on);
+    if (host && host.setRecording) host.setRecording(on);
   }
 
   function startRecording() {

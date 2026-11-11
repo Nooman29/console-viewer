@@ -1,6 +1,6 @@
 # Console Viewer
 
-Play your console on your PC screen. Plug an HDMI capture card into a USB port and the picture appears, full screen, with sound.
+Play your console on your PC screen. Plug an HDMI capture card into a USB port and the picture appears, with sound. Press `F` for full screen.
 
 Works with anything that has an HDMI output: PS4, PS5, Nintendo Switch, Xbox, a camera, another computer.
 
@@ -14,7 +14,7 @@ Your PC's own HDMI port only sends a picture out. It cannot take one in. So you 
 Console ──HDMI──▶ Capture card ──USB──▶ PC ──▶ Console Viewer
 ```
 
-## Two ways to use it
+## Three ways to use it
 
 **In your browser, nothing to install:** open <https://nooman29.github.io/console-viewer/> in Chrome or Edge, press **Start**, and allow camera and microphone access.
 
@@ -27,6 +27,8 @@ Console ──HDMI──▶ Capture card ──USB──▶ PC ──▶ Console
 - saves screenshots and clips straight to your Downloads folder
 
 The installer is not signed, so Windows shows a blue "Windows protected your PC" box the first time. Choose **More info**, then **Run anyway**.
+
+**As a Python program:** see [python/README.md](python/README.md).
 
 ## Run it from the source code
 
@@ -71,7 +73,8 @@ npm start
 
 PlayStations switch on copy protection (HDCP) by default, and capture cards show a black picture when it is on. Turn it off on the console:
 
-**Settings → System → HDMI → Enable HDCP → off**
+- **PS5:** Settings → System → HDMI → Enable HDCP → off
+- **PS4:** Settings → System → Enable HDCP → off
 
 Some streaming apps (Netflix and similar) will not play while it is off. Games are not affected.
 
@@ -103,7 +106,7 @@ The desktop app is tested the same way: the real program is started with pretend
 |---|---|---|
 | 1 | Web app (`web/`) | Working, waiting for tests with real capture cards |
 | 2 | Desktop app (`desktop/`): opens by itself when a card is plugged in, tray icon, installer | Working, waiting for tests with real capture cards |
-| 3 | Python version | Planned |
+| 3 | Python version (`python/`, see [its README](python/README.md)) | Working, waiting for tests with real capture cards |
 | 4 | C++ version using native Windows capture for the lowest delay | Planned |
 
 ## Contributing

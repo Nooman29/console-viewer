@@ -63,7 +63,8 @@ after(async () => {
 // Opens the app with the given pretend devices. `saved` pre-fills the
 // choices the app remembers between visits.
 // `host` pretends the page is inside the desktop app: { startPaused }.
-async function openApp(t, config, saved, host) {
+// `init` is extra page code to run before the app starts.
+async function openApp(t, config, saved, host, init) {
   const context = await browser.newContext();
   t.after(() => context.close());
   const page = await context.newPage();
@@ -89,6 +90,7 @@ async function openApp(t, config, saved, host) {
     }, host);
   }
   await page.addInitScript({ path: FAKE });
+  if (init) await page.addInitScript(init);
   await page.goto(base);
   page.errors = errors;
   return page;
@@ -431,6 +433,68 @@ test('recording a picture with no sound works', async (t) => {
     page.click('#recBtn'),
   ]);
   assert.ok(await savedSize(download) > 10000);
+});
+
+// ---------- Problems found in review ----------
+
+// The most common cheap capture card. Its picture and sound do not share a group.
+const CHEAP_CARD = { kind: 'videoinput', deviceId: 'ms1', label: 'USB Video (534d:2109)', groupId: 'g-ms-video' };
+const CHEAP_CARD_SOUND = { kind: 'audioinput', deviceId: 'ms1a', label: 'Digital Audio Interface (USB Digital Audio)', groupId: 'g-ms-audio' };
+
+test('cheap card whose sound is not grouped with its picture still gets sound', async (t) => {
+  const page = await openApp(t, { devices: [WEBCAM, MIC, CHEAP_CARD, CHEAP_CARD_SOUND] });
+  await page.click('#startBtn');
+  await waitLive(page);
+  assert.equal(await value(page, 'videoSel'), 'ms1');
+  assert.equal(await value(page, 'audioSel'), 'ms1a');
+});
+
+test('sound device that registers while the picture is still opening is picked up', async (t) => {
+  const page = await openApp(t, { devices: [CARD], camGranted: true, micGranted: true, openDelay: 1200 }, null, {});
+  await page.waitForFunction(() => window.__fake.state.calls.length > 0, null, WAIT);
+  await fake(page, 'plug', CARD_SOUND); // arrives while the picture is opening
+  await waitValue(page, 'audioSel', 'card1a');
+  await waitLive(page);
+  assert.equal(await fake(page, 'liveTrackCount'), 2);
+});
+
+test('an interrupted start does not leave the sound muted', async (t) => {
+  // The first play() is cut short, as happens when a newer open replaces it.
+  const page = await openApp(t, { devices: [CARD, CARD_SOUND] }, null, null, () => {
+    const realPlay = HTMLMediaElement.prototype.play;
+    let first = true;
+    HTMLMediaElement.prototype.play = function play() {
+      if (first) {
+        first = false;
+        return Promise.reject(new DOMException('interrupted', 'AbortError'));
+      }
+      return realPlay.call(this);
+    };
+  });
+  await page.click('#startBtn');
+  await waitLive(page);
+  assert.equal(await page.evaluate(() => document.getElementById('video').muted), false);
+  assert.equal(await page.textContent('#muteBtn'), 'Mute');
+});
+
+test('a browser that refuses to autoplay with sound starts muted and says so', async (t) => {
+  const page = await openApp(t, { devices: [CARD, CARD_SOUND] }, null, null, () => {
+    const realPlay = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function play() {
+      if (!this.muted) return Promise.reject(new DOMException('blocked', 'NotAllowedError'));
+      return realPlay.call(this);
+    };
+  });
+  await page.click('#startBtn');
+  await waitLive(page);
+  assert.equal(await page.evaluate(() => document.getElementById('video').muted), true);
+  assert.equal(await page.textContent('#muteBtn'), 'Unmute');
+});
+
+test('desktop: a blocked camera points to Windows settings, not a browser address bar', async (t) => {
+  const page = await openApp(t, { devices: [CARD, CARD_SOUND], camDenied: true }, null, {});
+  await waitMessage(page, 'Camera access was blocked');
+  assert.match(await page.textContent('#screenSub'), /Windows Settings/);
 });
 
 // ---------- Inside the desktop app ----------

@@ -1,7 +1,7 @@
 {
   "name": "console-viewer",
   "productName": "Console Viewer",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Plug an HDMI capture card into your PC and play your console full screen, with sound.",
   "author": "Nooman",
   "license": "MIT",

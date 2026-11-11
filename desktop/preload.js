@@ -17,4 +17,6 @@ contextBridge.exposeInMainWorld('consoleViewerHost', {
   captureCardConnected: (label) => { ipcRenderer.send('host:capture-connected', String(label || '')); },
   // A picture is showing (or stopped): keep the screen awake (or let it sleep).
   setPlaying: (playing) => { ipcRenderer.send('host:playing', !!playing); },
+  // A clip is being recorded (or stopped): quitting must wait for it to save.
+  setRecording: (recording) => { ipcRenderer.send('host:recording', !!recording); },
 });

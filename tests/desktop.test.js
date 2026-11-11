@@ -150,6 +150,38 @@ test('clicking the tray icon brings the window back and reconnects', { skip }, a
   assert.equal(await windowVisible(app), true);
 });
 
+test('a show request that arrives while the page is loading is not lost', { skip }, async (t) => {
+  const { app, page } = await launch(t, { args: ['--hidden'] });
+  await waitMessage(page, 'Paused');
+  // Ask for the window, then reload: the page comes up believing it should
+  // stay paused, and only the shell knows better.
+  await app.evaluate(({ app: a }) => a.emit('second-instance'));
+  await waitLive(page);
+  await page.reload();
+  await waitLive(page);
+  assert.equal(await windowVisible(app), true);
+});
+
+test('quitting while recording saves the clip first', { skip }, async (t) => {
+  const { app, page } = await launch(t);
+  const folder = fs.mkdtempSync(path.join(profile, 'clips-'));
+  await app.evaluate(({ app: a }, dir) => a.setPath('downloads', dir), folder);
+  await waitLive(page);
+  await page.click('#recBtn');
+  await page.waitForTimeout(2500);
+  const exited = new Promise((resolve) => app.process().once('exit', resolve));
+  await app.evaluate(({ app: a }) => { a.quit(); }).catch(() => {});
+  await exited;
+  const clips = fs.readdirSync(folder).filter((f) => /^console-viewer-.*\.(mp4|webm)$/.test(f));
+  assert.equal(clips.length, 1, `expected one clip, found ${JSON.stringify(fs.readdirSync(folder))}`);
+  const clipSize = fs.statSync(path.join(folder, clips[0])).size;
+  // A real video file, not an empty or cut-off one. (This encoder makes very
+  // small files from the simple test picture, so size alone proves little.)
+  assert.ok(clipSize > 2000, `clip ${clips[0]} is only ${clipSize} bytes`);
+  const head = fs.readFileSync(path.join(folder, clips[0])).subarray(0, 64).toString('latin1');
+  assert.match(head, /ftyp|Eß£/, 'the file should start like an MP4 or WebM video');
+});
+
 test('screenshots are saved to Downloads without asking where', { skip }, async (t) => {
   const { app, page } = await launch(t);
   const folder = fs.mkdtempSync(path.join(profile, 'downloads-'));
