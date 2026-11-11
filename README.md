@@ -29,6 +29,7 @@ Then open <http://localhost:8000>, press **Start**, and allow camera and microph
 - Finds the capture card by itself and connects when you plug it in
 - Reconnects if the card is unplugged and plugged back in
 - Plays the console's sound through your PC
+- Records video clips with sound and saves screenshots
 - Keeps your screen awake while you play with a controller
 - Tells you what to do if the picture is black
 - Remembers your device, sound, quality and volume choices
@@ -38,6 +39,7 @@ Then open <http://localhost:8000>, press **Start**, and allow camera and microph
 | `F` or double-click | Full screen |
 | `M` | Mute or unmute |
 | `S` | Save a screenshot |
+| `R` | Start or stop recording a video clip |
 | `P` | Small floating window (Chrome and Edge) |
 | `Z` | Fit or fill the screen |
 
@@ -49,13 +51,17 @@ PlayStations switch on copy protection (HDCP) by default, and capture cards show
 
 Some streaming apps (Netflix and similar) will not play while it is off. Games are not affected.
 
+## Recording clips
+
+Press `R` to start and `R` again to stop. The clip is saved to your Downloads folder as an MP4 (or WebM in browsers that cannot make MP4). If the capture card is unplugged while recording, what was recorded so far is still saved. A clip is held in memory until you stop, so keep clips to a few minutes.
+
 ## No sound?
 
 Pick the capture card in the **Sound** menu at the top. Sound is only chosen automatically when the device's name looks like a capture card, so that a webcam's microphone never plays through your speakers by accident.
 
 ## Tests
 
-The tests run the real page in Microsoft Edge with pretend capture cards, so they need no hardware. They cover plugging in, unplugging, a busy device, refused access, the black-picture tip, sound selection and the keyboard shortcuts.
+The tests run the real page in Microsoft Edge with pretend capture cards, so they need no hardware. They cover plugging in, unplugging, a busy device, refused access, the black-picture tip, sound selection, recording and the keyboard shortcuts.
 
 ```powershell
 cd tests

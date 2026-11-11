@@ -7,6 +7,7 @@
   --accent: #4f8cff;
   --accent-text: #fff;
   --warn: #ffb020;
+  --rec: #ff5a5a;
 }
 
 * { box-sizing: border-box; }
@@ -122,6 +123,34 @@ body.live.idle { cursor: none; }
 }
 .hint strong { color: var(--warn); }
 .hint p { margin: 6px 0 10px; color: var(--text); }
+
+/* ---- Recording ---- */
+button.recording { border-color: var(--rec); color: var(--rec); }
+.rec-badge {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.rec-badge::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--rec);
+  animation: rec-pulse 1.2s ease-in-out infinite;
+}
+@keyframes rec-pulse { 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .rec-badge::before { animation: none; } }
 
 /* ---- Toast ---- */
 .toast {

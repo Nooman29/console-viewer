@@ -335,3 +335,76 @@ test('screenshot downloads a PNG', async (t) => {
   ]);
   assert.match(download.suggestedFilename(), /^console-viewer-\d{8}-\d{6}\.png$/);
 });
+
+// ---------- Recording clips ----------
+
+const isRecording = (page) => page.evaluate(() => !document.getElementById('recBadge').hidden);
+
+async function savedSize(download) {
+  return fs.statSync(await download.path()).size;
+}
+
+test('R records a clip and saves it as a video file', async (t) => {
+  const page = await openApp(t, { devices: [CARD, CARD_SOUND] });
+  await page.click('#startBtn');
+  await waitLive(page);
+  await page.mouse.move(400, 400);
+  await page.keyboard.press('r');
+  assert.equal(await isRecording(page), true);
+  assert.equal(await page.textContent('#recBtn'), 'Stop recording');
+  await page.waitForTimeout(2500);
+  const [download] = await Promise.all([
+    page.waitForEvent('download', WAIT),
+    page.keyboard.press('r'),
+  ]);
+  assert.match(download.suggestedFilename(), /^console-viewer-\d{8}-\d{6}\.(mp4|webm)$/);
+  assert.ok(await savedSize(download) > 10000, 'the clip should contain real video');
+  assert.equal(await isRecording(page), false);
+  assert.equal(await page.textContent('#recBtn'), 'Record');
+  assert.match(await page.textContent('#recTime'), /^0:0\d$/);
+  assert.deepEqual(page.errors, []);
+});
+
+test('unplugging while recording still saves the clip', async (t) => {
+  const page = await openApp(t, { devices: [CARD, CARD_SOUND] });
+  await page.click('#startBtn');
+  await waitLive(page);
+  await page.click('#recBtn');
+  await page.waitForTimeout(2500);
+  const [download] = await Promise.all([
+    page.waitForEvent('download', WAIT),
+    fake(page, 'unplug', 'card1', 'card1a'),
+  ]);
+  assert.ok(await savedSize(download) > 10000);
+  await waitMessage(page, 'Device disconnected');
+  assert.equal(await isRecording(page), false);
+  assert.deepEqual(page.errors, []);
+});
+
+test('changing quality while recording saves the clip and stops recording', async (t) => {
+  const page = await openApp(t, { devices: [CARD, CARD_SOUND] });
+  await page.click('#startBtn');
+  await waitLive(page);
+  await page.click('#recBtn');
+  await page.waitForTimeout(2500);
+  const [download] = await Promise.all([
+    page.waitForEvent('download', WAIT),
+    page.selectOption('#qualitySel', '720'),
+  ]);
+  assert.ok(await savedSize(download) > 10000);
+  await waitLive(page);
+  assert.equal(await isRecording(page), false);
+});
+
+test('recording a picture with no sound works', async (t) => {
+  const page = await openApp(t, { devices: [WEBCAM, MIC] });
+  await page.click('#startBtn');
+  await waitLive(page);
+  await page.click('#recBtn');
+  await page.waitForTimeout(2000);
+  const [download] = await Promise.all([
+    page.waitForEvent('download', WAIT),
+    page.click('#recBtn'),
+  ]);
+  assert.ok(await savedSize(download) > 10000);
+});

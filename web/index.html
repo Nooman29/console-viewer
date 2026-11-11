@@ -46,6 +46,7 @@
     <input id="volume" type="range" min="0" max="1" step="0.05" value="1" title="Volume" aria-label="Volume">
     <button id="fillBtn" type="button" title="Fit or fill the screen (Z)">Fill</button>
     <button id="shotBtn" type="button" title="Save a screenshot (S)">Screenshot</button>
+    <button id="recBtn" type="button" title="Record a video clip (R)">Record</button>
     <button id="pipBtn" type="button" title="Small floating window (P)">Mini window</button>
     <button id="fsBtn" type="button" title="Full screen (F)">Full screen</button>
   </header>
@@ -59,6 +60,9 @@
     </p>
     <button id="hintClose" type="button">Got it</button>
   </aside>
+
+  <!-- Stays on screen while recording, even when the bar is hidden. -->
+  <div id="recBadge" class="rec-badge" hidden>Recording <span id="recTime">0:00</span></div>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 

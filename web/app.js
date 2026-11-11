@@ -23,6 +23,9 @@
   const volume = $('volume');
   const fillBtn = $('fillBtn');
   const shotBtn = $('shotBtn');
+  const recBtn = $('recBtn');
+  const recBadge = $('recBadge');
+  const recTime = $('recTime');
   const pipBtn = $('pipBtn');
   const fsBtn = $('fsBtn');
   const hint = $('hint');
@@ -207,6 +210,7 @@
 
   function stopStream() {
     if (!stream) return;
+    stopRecording(); // save what was recorded before the picture goes away
     stream.getTracks().forEach((t) => { t.onended = null; t.stop(); });
     stream = null;
     video.srcObject = null;
@@ -474,14 +478,87 @@
     canvas.getContext('2d').drawImage(video, 0, 0);
     canvas.toBlob((blob) => {
       if (!blob) return;
-      const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '-');
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = `console-viewer-${stamp}.png`;
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+      saveFile(blob, 'png');
       toast('Screenshot saved');
     }, 'image/png');
+  }
+
+  function saveFile(blob, extension) {
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '-');
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `console-viewer-${stamp}.${extension}`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 60000);
+  }
+
+  // ---------- Recording clips ----------
+  // MP4 plays everywhere, so prefer it; older browsers fall back to WebM.
+
+  const RECORDING_TYPES = [
+    'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+    'video/mp4',
+    'video/webm;codecs=vp9,opus',
+    'video/webm;codecs=vp8,opus',
+    'video/webm',
+  ];
+  let recorder = null;
+  let recordingSince = 0;
+  let recordingTimer = null;
+
+  function updateRecordingUi() {
+    const on = !!recorder;
+    const seconds = on ? Math.floor((Date.now() - recordingSince) / 1000) : 0;
+    recTime.textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+    recBadge.hidden = !on;
+    recBtn.textContent = on ? 'Stop recording' : 'Record';
+    recBtn.classList.toggle('recording', on);
+  }
+
+  function startRecording() {
+    if (!stream || recorder) return;
+    const type = RECORDING_TYPES.find((t) => MediaRecorder.isTypeSupported(t)) || '';
+    let rec;
+    try {
+      rec = new MediaRecorder(stream, { ...(type ? { mimeType: type } : {}), videoBitsPerSecond: 8000000 });
+    } catch {
+      toast('Could not start recording.');
+      return;
+    }
+    const chunks = [];
+    rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      if (recorder === rec) stopRecording(); // the browser stopped it, not us
+      const mime = rec.mimeType || type || 'video/webm';
+      const blob = new Blob(chunks, { type: mime });
+      if (!blob.size) return;
+      saveFile(blob, mime.includes('mp4') ? 'mp4' : 'webm');
+      toast('Clip saved');
+    };
+    rec.onerror = () => { toast('Recording stopped because of a problem.'); stopRecording(); };
+    try {
+      rec.start(1000);
+    } catch {
+      toast('Could not start recording.');
+      return;
+    }
+    recorder = rec;
+    recordingSince = Date.now();
+    recordingTimer = setInterval(updateRecordingUi, 500);
+    updateRecordingUi();
+  }
+
+  function stopRecording() {
+    if (!recorder) return;
+    const rec = recorder;
+    recorder = null;
+    clearInterval(recordingTimer);
+    try { if (rec.state !== 'inactive') rec.stop(); } catch { /* already stopped */ }
+    updateRecordingUi();
+  }
+
+  function toggleRecording() {
+    if (recorder) stopRecording(); else startRecording();
   }
 
   // Hide the bar and the mouse pointer when the mouse has been still.
@@ -559,6 +636,8 @@
     });
     fillBtn.addEventListener('click', toggleFill);
     shotBtn.addEventListener('click', screenshot);
+    if (window.MediaRecorder) recBtn.addEventListener('click', toggleRecording);
+    else recBtn.hidden = true;
     pipBtn.addEventListener('click', togglePip);
     fsBtn.addEventListener('click', toggleFullscreen);
     video.addEventListener('dblclick', toggleFullscreen);
@@ -572,6 +651,7 @@
       const tag = e.target && e.target.tagName;
       if (tag === 'SELECT' || tag === 'INPUT') return;
       const actions = { f: toggleFullscreen, m: toggleMute, s: screenshot, p: togglePip, z: toggleFill };
+      if (window.MediaRecorder) actions.r = toggleRecording;
       const action = actions[e.key.toLowerCase()];
       if (action && stream) { e.preventDefault(); action(); }
     });
