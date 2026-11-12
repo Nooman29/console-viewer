@@ -175,11 +175,10 @@ test('quitting while recording saves the clip first', { skip }, async (t) => {
   const clips = fs.readdirSync(folder).filter((f) => /^console-viewer-.*\.(mp4|webm)$/.test(f));
   assert.equal(clips.length, 1, `expected one clip, found ${JSON.stringify(fs.readdirSync(folder))}`);
   const clipSize = fs.statSync(path.join(folder, clips[0])).size;
-  // A real video file, not an empty or cut-off one. (This encoder makes very
-  // small files from the simple test picture, so size alone proves little.)
-  assert.ok(clipSize > 2000, `clip ${clips[0]} is only ${clipSize} bytes`);
-  const head = fs.readFileSync(path.join(folder, clips[0])).subarray(0, 64).toString('latin1');
-  assert.match(head, /ftyp|Eß£/, 'the file should start like an MP4 or WebM video');
+  // A complete video with sound, the same as one stopped by hand.
+  assert.ok(clipSize > 30000, `clip ${clips[0]} is only ${clipSize} bytes`);
+  const bytes = fs.readFileSync(path.join(folder, clips[0])).toString('latin1');
+  assert.ok(bytes.includes('mp4a') || bytes.includes('Opus'), 'the clip should contain the game sound');
 });
 
 test('screenshots are saved to Downloads without asking where', { skip }, async (t) => {

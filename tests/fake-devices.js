@@ -51,9 +51,19 @@
   }
 
   function makeAudioTrack() {
+    // A real capture card delivers sound all the time. A silent track with no
+    // samples makes the browser's recorder wait for sound and drop pictures,
+    // so feed it a steady tone, far too quiet to hear.
     audioContext = audioContext || new AudioContext();
-    const track = audioContext.createMediaStreamDestination().stream.getAudioTracks()[0];
-    return { track, cleanup: () => {} };
+    if (audioContext.state === 'suspended') audioContext.resume().catch(() => {});
+    const tone = audioContext.createOscillator();
+    const quiet = audioContext.createGain();
+    quiet.gain.value = 0.0005;
+    const out = audioContext.createMediaStreamDestination();
+    tone.connect(quiet).connect(out);
+    tone.start();
+    const track = out.stream.getAudioTracks()[0];
+    return { track, cleanup: () => { try { tone.stop(); } catch { /* already stopped */ } } };
   }
 
   // Works out which device a getUserMedia constraint is asking for.

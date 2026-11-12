@@ -97,16 +97,23 @@ class SystemBackend:
     def save_image(self, path: Path, frame: np.ndarray) -> bool:
         import cv2
 
-        return bool(cv2.imwrite(str(path), frame))
+        # cv2.imwrite fails on Windows for paths with accented letters (a user
+        # called Jose with an accent, say), so encode in memory and let Python
+        # write the file.
+        ok, encoded = cv2.imencode(path.suffix or ".png", frame)
+        if not ok:
+            return False
+        try:
+            encoded.tofile(str(path))
+        except OSError:
+            return False
+        return True
 
-    def open_recorder(self, path: Path, width: int, height: int, fps: float) -> Any:
-        import cv2
+    def open_recorder(self, path: Path, width: int, height: int, fps: float,
+                      audio: Optional[tuple[int, int]] = None) -> Any:
+        from .recorder import ClipRecorder
 
-        writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
-        if not writer.isOpened():
-            writer.release()
-            raise OSError("Could not start recording.")
-        return writer
+        return ClipRecorder(path, width, height, fps, audio)
 
     # ---- Keeping the screen on ----
     # Playing with a controller sends no keyboard or mouse input to the PC,

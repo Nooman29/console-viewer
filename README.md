@@ -14,7 +14,7 @@ Your PC's own HDMI port only sends a picture out. It cannot take one in. So you 
 Console ──HDMI──▶ Capture card ──USB──▶ PC ──▶ Console Viewer
 ```
 
-## Three ways to use it
+## Four ways to use it
 
 **In your browser, nothing to install:** open <https://nooman29.github.io/console-viewer/> in Chrome or Edge, press **Start**, and allow camera and microphone access.
 
@@ -29,6 +29,8 @@ Console ──HDMI──▶ Capture card ──USB──▶ PC ──▶ Console
 The installer is not signed, so Windows shows a blue "Windows protected your PC" box the first time. Choose **More info**, then **Run anyway**.
 
 **As a Python program:** see [python/README.md](python/README.md).
+
+**As a small native Windows program (C++):** see [cpp/README.md](cpp/README.md).
 
 ## Run it from the source code
 
@@ -107,7 +109,7 @@ The desktop app is tested the same way: the real program is started with pretend
 | 1 | Web app (`web/`) | Working, waiting for tests with real capture cards |
 | 2 | Desktop app (`desktop/`): opens by itself when a card is plugged in, tray icon, installer | Working, waiting for tests with real capture cards |
 | 3 | Python version (`python/`, see [its README](python/README.md)) | Working, waiting for tests with real capture cards |
-| 4 | C++ version using native Windows capture for the lowest delay | Planned |
+| 4 | C++ version using native Windows capture (`cpp/`, see [its README](cpp/README.md)) | Working, waiting for tests with real capture cards |
 
 ## Contributing
 

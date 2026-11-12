@@ -106,7 +106,9 @@ class Viewer:
         self._recorder: Any = None
         self._record_path: Optional[Path] = None
         self._record_since = 0.0
+        self._record_shown = -1
         self._record_size = (0, 0)
+        self._record_sound: Optional[tuple[int, int]] = None  # the clip's sound format
 
         self._toast = ""
         self._toast_until = 0.0
@@ -265,7 +267,19 @@ class Viewer:
             return
         self.audio_device = device
         self._apply_volume()
+        self._hook_recorder_sound()
         self.dirty = True
+
+    def _hook_recorder_sound(self) -> None:
+        """Feed the running clip from the current sound source, if they match."""
+        sound = self.audio
+        if sound is None or not hasattr(sound, "on_audio"):
+            return
+        with self._record_lock:
+            recorder = self._recorder
+        fmt = (int(getattr(sound, "samplerate", 48000)), int(getattr(sound, "channels", 2)))
+        if recorder is not None and self._record_sound == fmt:
+            sound.on_audio = recorder.write_audio
 
     def _stop_audio(self) -> None:
         audio, self.audio = self.audio, None
@@ -281,7 +295,9 @@ class Viewer:
     def _next_audio(self) -> None:
         """Step through: each sound input in turn, then off."""
         names = [a.name for a in self.audios]
-        current = self.audio_device.name if self.audio_device else None
+        # Go by what was last asked for, so an input that would not open is
+        # stepped past instead of being tried again on every press.
+        current = self._audio_choice or (self.audio_device.name if self.audio_device else None)
         position = names.index(current) + 1 if current in names else 0
         self._stop_audio()
         self._audio_failed = None
@@ -290,6 +306,8 @@ class Viewer:
             self._start_audio()
             if self.audio is not None:
                 self.toast(f"Sound: {names[position]}")
+            else:
+                self.toast(f"Could not open {names[position]}. Press A for the next one.")
         else:
             self._audio_choice = ""
             self.toast("Sound: off")
@@ -319,7 +337,12 @@ class Viewer:
         if self._toast and now >= self._toast_until:
             self._toast, self.dirty = "", True
         if self.recording:
-            self.dirty = True  # the timer in the badge moves
+            shown = int(now - self._record_since)
+            if shown != self._record_shown:  # redraw only when the timer in the badge moves
+                self._record_shown, self.dirty = shown, True
+        # 7. Sound that died by itself (the card's sound input dropped out).
+        if self.audio is not None and not getattr(self.audio, "active", True):
+            self._stop_audio()
 
     def _on_disconnect(self) -> None:
         lost = self.current.key if self.current else None
@@ -360,14 +383,22 @@ class Viewer:
         fps = self.grabber.measured_fps or self.grabber.source.fps or 30.0
         fps = min(max(fps, 5.0), 120.0)
         path = self._free_path("mp4")
+        sound = self.audio
+        sound_format = None
+        if sound is not None and hasattr(sound, "on_audio"):
+            sound_format = (int(getattr(sound, "samplerate", 48000)), int(getattr(sound, "channels", 2)))
         try:
-            recorder = self.backend.open_recorder(path, width, height, fps)
+            recorder = self.backend.open_recorder(path, width, height, fps, sound_format)
         except Exception:
             self.toast("Could not start recording.")
             return False
         with self._record_lock:
             self._recorder, self._record_path = recorder, path
             self._record_size = (width, height)
+        self._record_sound = sound_format
+        self._record_shown = -1
+        if sound_format is not None:
+            sound.on_audio = recorder.write_audio
         self._record_since = self.clock()
         self.dirty = True
         return True
@@ -378,7 +409,13 @@ class Viewer:
             path, self._record_path = self._record_path, None
         if recorder is None:
             return None
+        if self.audio is not None and hasattr(self.audio, "on_audio"):
+            self.audio.on_audio = None
         recorder.release()
+        self._record_sound = None
+        if getattr(recorder, "error", None) is not None:
+            self.toast("The clip could not be saved.")
+            return None
         self.toast(f"Clip saved to {path.parent.name}" if path else "Clip saved")
         return path
 

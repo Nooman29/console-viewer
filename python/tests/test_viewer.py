@@ -272,13 +272,54 @@ def test_two_screenshots_in_one_second_do_not_overwrite(viewer, backend):
     assert len(list(backend.folder.glob("*.png"))) == 2
 
 
+def read_clip(path):
+    """(number of pictures, seconds of sound) in a saved clip."""
+    import av
+
+    with av.open(str(path)) as clip:
+        pictures = sum(1 for _ in clip.decode(clip.streams.video[0]))
+    with av.open(str(path)) as clip:
+        if not clip.streams.audio:
+            return pictures, 0.0
+        samples = sum(frame.samples for frame in clip.decode(clip.streams.audio[0]))
+        return pictures, samples / clip.streams.audio[0].rate
+
+
 def count_frames(path):
-    video = cv2.VideoCapture(str(path))
-    count = 0
-    while video.read()[0]:
-        count += 1
-    video.release()
-    return count
+    return read_clip(path)[0]
+
+
+def test_clip_includes_the_game_sound(viewer, backend):
+    import numpy as np
+
+    viewer.update_devices([CARD], [CARD_SOUND])
+    wait_for_frame(viewer)
+    sound = backend.sounds[0]
+    key(viewer, "m")  # muting what you hear must not mute the clip
+    key(viewer, "r")
+    assert sound.on_audio is not None
+    block = (np.sin(np.arange(480) * 0.2)[:, None] * 0.3).astype("float32").repeat(2, axis=1)
+    start = viewer.frame_count()
+    for _ in range(100):          # one second of sound in 10 ms blocks
+        sound.on_audio(block)
+    assert wait_for(lambda: viewer.frame_count() >= start + 30)
+    key(viewer, "r")
+    assert sound.on_audio is None
+    clip = next(backend.folder.glob("console-viewer-*.mp4"))
+    pictures, seconds = read_clip(clip)
+    assert pictures >= 30
+    assert 0.9 <= seconds <= 1.2
+
+
+def test_clip_without_a_sound_source_has_no_sound_track(viewer, backend):
+    viewer.update_devices([WEBCAM], [MIC])
+    wait_for_frame(viewer)
+    key(viewer, "r")
+    start = viewer.frame_count()
+    assert wait_for(lambda: viewer.frame_count() >= start + 20)
+    key(viewer, "r")
+    pictures, seconds = read_clip(next(backend.folder.glob("*.mp4")))
+    assert pictures >= 20 and seconds == 0.0
 
 
 def test_recording_saves_a_playable_clip(viewer, backend):

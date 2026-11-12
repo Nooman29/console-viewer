@@ -370,6 +370,12 @@ async function savedSize(download) {
   return fs.statSync(await download.path()).size;
 }
 
+// True when the saved clip carries a sound track (AAC in MP4, Opus in WebM).
+async function hasSound(download) {
+  const bytes = fs.readFileSync(await download.path()).toString('latin1');
+  return bytes.includes('mp4a') || bytes.includes('Opus') || bytes.includes('A_OPUS');
+}
+
 test('R records a clip and saves it as a video file', async (t) => {
   const page = await openApp(t, { devices: [CARD, CARD_SOUND] });
   await page.click('#startBtn');
@@ -384,7 +390,8 @@ test('R records a clip and saves it as a video file', async (t) => {
     page.keyboard.press('r'),
   ]);
   assert.match(download.suggestedFilename(), /^console-viewer-\d{8}-\d{6}\.(mp4|webm)$/);
-  assert.ok(await savedSize(download) > 10000, 'the clip should contain real video');
+  assert.ok(await savedSize(download) > 30000, 'the clip should contain real video');
+  assert.equal(await hasSound(download), true, 'the clip should contain the game sound');
   assert.equal(await isRecording(page), false);
   assert.equal(await page.textContent('#recBtn'), 'Record');
   assert.match(await page.textContent('#recTime'), /^0:0\d$/);
@@ -433,6 +440,7 @@ test('recording a picture with no sound works', async (t) => {
     page.click('#recBtn'),
   ]);
   assert.ok(await savedSize(download) > 10000);
+  assert.equal(await hasSound(download), false);
 });
 
 // ---------- Problems found in review ----------

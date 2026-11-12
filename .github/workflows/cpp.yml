@@ -1,0 +1,34 @@
+# Builds the C++ version with Visual Studio and runs its tests, whenever the
+# C++ code changes. The built program is kept as a downloadable file on the
+# run's page for two weeks.
+name: Build C++ version
+
+on:
+  push:
+    branches: [main]
+    paths: ['cpp/**', '.github/workflows/cpp.yml']
+  pull_request:
+    paths: ['cpp/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Configure
+        run: cmake -S cpp -B cpp/build
+      - name: Build
+        run: cmake --build cpp/build --config Release
+      - name: Test
+        run: cpp/build/Release/cv_tests.exe
+      - name: Check the program starts
+        run: cpp/build/Release/console-viewer.exe --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: console-viewer-cpp
+          path: cpp/build/Release/console-viewer.exe
+          retention-days: 14

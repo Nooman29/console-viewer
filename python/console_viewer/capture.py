@@ -44,11 +44,15 @@ class OpenCVSource:
         if not cap.isOpened():
             cap.release()
             raise OSError(f"Could not open {device.name}. Another app may be using it.")
-        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+        # Order matters: with DirectShow, setting the size or speed after the
+        # format makes OpenCV forget the format, so MJPEG goes last.
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
         cap.set(cv2.CAP_PROP_FPS, fps)
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        code = int(cap.get(cv2.CAP_PROP_FOURCC))
+        self.format = "".join(chr((code >> shift) & 0xFF) for shift in (0, 8, 16, 24)).strip("\x00")
         self._cap = cap
         self.width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or width
         self.height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or height
@@ -103,6 +107,7 @@ class FrameGrabber:
         on_frame: Optional[Callable[[np.ndarray], None]] = None,
         max_failures: int = 60,
         retry_delay: float = 0.02,
+        stall_seconds: float = 5.0,
     ) -> None:
         self.source = source
         self.on_frame = on_frame            # called for every frame, e.g. by the recorder
@@ -110,6 +115,7 @@ class FrameGrabber:
         self.measured_fps = 0.0
         self._max_failures = max_failures
         self._retry_delay = retry_delay
+        self._stall_seconds = stall_seconds
         self._lock = threading.Lock()
         self._frame: Optional[np.ndarray] = None
         self._count = 0
@@ -135,6 +141,7 @@ class FrameGrabber:
         failures = 0
         window_start = time.monotonic()
         window_frames = 0
+        last_good = time.monotonic()
         while not self._stop.is_set():
             try:
                 frame = self.source.read()
@@ -142,12 +149,16 @@ class FrameGrabber:
                 frame = None
             if frame is None:
                 failures += 1
-                if failures >= self._max_failures:
+                # Some devices fail fast when unplugged; others make every
+                # read wait a second, so also go by the clock.
+                stalled = time.monotonic() - last_good >= self._stall_seconds
+                if failures >= self._max_failures or stalled:
                     self.failed.set()
                     return
                 time.sleep(self._retry_delay)
                 continue
             failures = 0
+            last_good = time.monotonic()
             with self._lock:
                 self._frame = frame
                 self._count += 1

@@ -76,6 +76,10 @@ class FakeStream:
         self.settings = settings
         self.started = self.stopped = self.closed = False
 
+    @property
+    def active(self):
+        return self.started and not self.stopped
+
     def start(self):
         self.started = True
 

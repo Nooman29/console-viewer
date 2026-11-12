@@ -17,8 +17,11 @@ class AudioPassthrough:
         self.device = device
         self.volume = 1.0
         self.muted = False
+        self.on_audio = None  # called with every block of sound, e.g. by the recorder
         self._lock = lock or threading.Lock()
         channels = max(1, min(2, device.channels))
+        self.channels = channels
+        self.samplerate = device.samplerate
         extra = None
         output = None
         try:
@@ -45,13 +48,26 @@ class AudioPassthrough:
 
     @property
     def active(self) -> bool:
-        return self._stream is not None
+        """True while sound is really flowing, not merely while it was once started."""
+        stream = self._stream
+        if stream is None:
+            return False
+        try:
+            return bool(stream.active)
+        except Exception:
+            return False
 
     def _callback(self, indata, outdata, frames, time, status) -> None:  # noqa: ARG002
         if self.muted:
             outdata.fill(0)
         else:
             outdata[:] = indata * self.volume
+        hook = self.on_audio
+        if hook is not None:
+            try:
+                hook(indata)  # the clip gets the game sound even while muted here
+            except Exception:
+                self.on_audio = None
 
     def stop(self) -> None:
         # The lock is shared with the device list refresh, which restarts the

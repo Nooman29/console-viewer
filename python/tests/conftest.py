@@ -50,6 +50,9 @@ class FakeAudio:
         self.muted = False
         self.volume = 1.0
         self.stopped = False
+        self.on_audio = None
+        self.samplerate = device.samplerate
+        self.channels = min(2, device.channels)
 
     def stop(self) -> None:
         self.stopped = True

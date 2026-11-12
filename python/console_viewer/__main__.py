@@ -57,14 +57,19 @@ def run(viewer: Any, backend: Any, window: Any, scan_seconds: float = 2.0,
     """The main loop: look for devices in the background, draw in the foreground."""
     found: "queue.Queue[tuple[list, list]]" = queue.Queue(maxsize=1)
     stop = threading.Event()
+    problems = [0]  # how many scans in a row have failed
 
     def scan() -> None:
         # Listing devices can take a moment, so it must not hold up the picture.
         while not stop.is_set():
             try:
                 result = (backend.list_videos(), backend.list_audios())
-            except Exception:
+                problems[0] = 0
+            except Exception as err:
                 result = None
+                problems[0] += 1
+                if problems[0] == 3:  # not a one-off: tell whoever started us
+                    print(f"Could not look for devices: {err}", file=sys.stderr)
             if result is not None:
                 try:
                     found.get_nowait()  # drop an unread older list
@@ -135,6 +140,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     args = build_parser().parse_args(argv)
 
     try:
+        import av  # noqa: F401
+        import cv2  # noqa: F401
+        import cv2_enumerate_cameras  # noqa: F401
+        import numpy  # noqa: F401
+        import sounddevice  # noqa: F401
+
         from .backend import DemoBackend, SystemBackend
     except ImportError as err:
         print(f"A required package is missing: {err.name}. Run: pip install -e .", file=sys.stderr)
